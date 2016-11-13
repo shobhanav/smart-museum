@@ -18,12 +18,14 @@ import jade.domain.DFService;
 import jade.domain.FIPAException;
 import jade.domain.FIPANames;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
+import jade.domain.FIPAAgentManagement.Property;
 import jade.domain.FIPAAgentManagement.SearchConstraints;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.lang.acl.ACLMessage;
 import jade.lang.acl.MessageTemplate;
 import jade.lang.acl.UnreadableException;
 import jade.proto.SimpleAchieveREInitiator;
+import jade.proto.SubscriptionInitiator;
 
 
 @SuppressWarnings("serial")
@@ -69,15 +71,7 @@ public class TourGuideAgent extends Agent {
 			fe.printStackTrace();
 		}
 		
-		
-		
-		addBehaviour(new TickerBehaviour(this, 30000) {
-			@Override
-			protected void onTick() {
-				// search for curator agents
-				searchCurators();
-			}
-		});
+		subscibeForCuratorService();
 		
 		// add cyclic behavior to keep listening requests from Profiler Agent
 		addBehaviour(new OfferRequestsServer());
@@ -87,50 +81,46 @@ public class TourGuideAgent extends Agent {
 		
 	}
 
-	/**
-	 * Searches for curator in the yellow pages. The curator list thus populated shall be used by this agent to prepare virtual tour.
-	 */
-	private void searchCurators() {
-		System.out.println("<"+ getLocalName() +"> searching for museum-curator type services");
-		curators = new ArrayList<AID>();
-		try {
-	  		// Build the description used as template for the search
-	  		DFAgentDescription template = new DFAgentDescription();
-	  		ServiceDescription templateSd = new ServiceDescription();
-	  		templateSd.setType("museum-curator");
-	  		template.addServices(templateSd);
-	  		
-	  		SearchConstraints sc = new SearchConstraints();
-	  		// We want to receive 10 results at most
-	  		sc.setMaxResults(new Long(10));
-	  		
-	  		DFAgentDescription[] results = DFService.search(this, template, sc);
-	  		if (results.length > 0) {
-	  			System.out.println("<"+getLocalName()+"> found the following museum-curator services:");
-	  			for (int i = 0; i < results.length; ++i) {
-	  				DFAgentDescription dfd = results[i];
-	  				AID provider = dfd.getName();
-	  				
-	  				Iterator it = dfd.getAllServices();
-	  				while (it.hasNext()) {
-	  					ServiceDescription sd = (ServiceDescription) it.next();
-	  					if (sd.getType().equals("museum-curator")) {
-	  						curators.add(dfd.getName());
-	  						System.out.println("- Service \""+sd.getName()+"\" provided by agent "+provider.getName());
-	  					}
-	  				}
-	  			}
-	  		}	
-	  		else {
-	  			System.out.println("<"+getLocalName()+"> did not find any museum-curator service");
-	  		}
-	  	}
-	  	catch (FIPAException fe) {
-	  		fe.printStackTrace();
-	  	}
-	}
-
-
+	private void subscibeForCuratorService() {
+		// Build the description used as template for the subscription
+		DFAgentDescription template = new DFAgentDescription();
+		ServiceDescription templateSd = new ServiceDescription();
+		templateSd.setType("museum-curator");
+		template.addServices(templateSd);
+		
+		SearchConstraints sc = new SearchConstraints();
+		// We want to receive 10 results at most
+		sc.setMaxResults(new Long(10));
+  		
+		addBehaviour(new SubscriptionInitiator(this, DFService.createSubscriptionMessage(this, getDefaultDF(), template, sc)) {
+			protected void handleInform(ACLMessage inform) {
+  			System.out.println("<"+getLocalName()+">: Notification received from DF");
+  			try {
+					DFAgentDescription[] results = DFService.decodeNotification(inform.getContent());
+		  		if (results.length > 0) {
+		  			curators = new ArrayList<AID>();
+		  			for (int i = 0; i < results.length; ++i) {
+		  				DFAgentDescription dfd = results[i];
+		  				AID provider = dfd.getName();
+		  				Iterator it = dfd.getAllServices();
+		  				while (it.hasNext()) {
+		  					ServiceDescription sd = (ServiceDescription) it.next();
+		  					if (sd.getType().equals("museum-curator")) {
+	  							System.out.println("museum-curator service found:");
+		  						System.out.println("- Service \""+sd.getName()+"\" provided by agent "+provider.getName());
+		  						curators.add(dfd.getName());
+		  					}
+		  				}
+		  			}
+		  		}	
+	  			System.out.println();
+		  	}
+		  	catch (FIPAException fe) {
+		  		fe.printStackTrace();
+		  	}
+			}
+		} );
+  }
 
 	@Override
 	protected void takeDown() {
